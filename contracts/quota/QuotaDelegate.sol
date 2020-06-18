@@ -34,15 +34,15 @@ import "../components/Halt.sol";
 import "./QuotaStorage.sol";
 
 interface IPriceOracle {
-    function getValue(bytes symbol) public returns(uint price);
+    function getValue(bytes symbol) public view returns(uint price);
 }
 
 interface IDepositOracle {
-    function getDepositInfo(bytes storemanGroupPk) public returns(uint deposit, bool active);
+    function getDepositAmount(bytes storemanGroupPK) public view returns(uint deposit);
 }
 
 interface ITokenManager {
-    function getTokenPairInfo(uint id) public returns(bytes ancestorSymbol);
+    function getTokenPairInfo(uint id) public view returns(bytes ancestorSymbol);
 }
 
 
@@ -81,9 +81,7 @@ contract QuotaDelegate is QuotaStorage, Halt {
         uint256 value
     ) external onlyHtlc {
         uint256 deposit;
-        bool active;
-        (deposit, active) = getDepositInfo(storemanGroupPk);
-        require(active, "Storeman group not active");
+        deposit = getDepositAmount(storemanGroupPK);
 
         /// Make sure enough inbound quota available
         Quota storage quota = quotaMap[tokenId][storemanGroupPK];
@@ -94,7 +92,7 @@ contract QuotaDelegate is QuotaStorage, Halt {
                 .add(1);
         }
 
-        uint256 mintQuota = getMintQuota(tokenId, storemanGroupPk);
+        uint256 mintQuota = getMintQuota(tokenId, storemanGroupPK);
 
         require(
             mintQuota.sub(quota._receivable.add(quota._debt)) >= value,
@@ -196,15 +194,9 @@ contract QuotaDelegate is QuotaStorage, Halt {
         bytes dstStoremanGroupPK
     ) external onlyHtlc {
         /// Make sure an active storemanGroup is provided to handle transactions
-        bool activeSrc;
-        bool activeDst;
-        (, activeSrc) = getDepositAmount(srcStoremanGroupPK);
-        (, activeDst) = getDepositAmount(srcStoremanGroupPK);
-        require(!activeSrc, "Source storeman group should be deactive.");
-        require(activeDst, "Dest storeman group should be active.");
 
         /// src: there's no processing tx, and have enough debt!
-        Quota storage src = quotaMap[tokenId][storemanGroupPK];
+        Quota storage src = quotaMap[tokenId][srcStoremanGroupPK];
         require(
             src._receivable == uint256(0) &&
                 src._payable == uint256(0) &&
@@ -237,11 +229,9 @@ contract QuotaDelegate is QuotaStorage, Halt {
     ) external onlyHtlc {
         Quota storage dst = quotaMap[tokenId][dstStoremanGroupPK];
         Quota storage src = quotaMap[tokenId][srcStoremanGroupPK];
-        (, activeSrc) = getDepositAmount(srcStoremanGroupPK);
 
         /// Make sure a legit storemanGroup provided
         require(dst._active, "Dst PK doesn't exist");
-        require(!activeSrc, "Source storeman group should be deactive.");
 
         /// Adjust quota record
         dst._receivable = dst._receivable.sub(value);
@@ -259,16 +249,13 @@ contract QuotaDelegate is QuotaStorage, Halt {
     function debtRevoke(
         uint256 tokenId,
         uint256 value,
-        bytes srcStoremanPK,
-        bytes dstStoremanPK
+        bytes srcStoremanGroupPK,
+        bytes dstStoremanGroupPK
     ) external onlyHtlc {
         Quota storage dst = quotaMap[tokenId][dstStoremanGroupPK];
         Quota storage src = quotaMap[tokenId][srcStoremanGroupPK];
-        (, activeSrc) = getDepositAmount(srcStoremanGroupPK);
-
         /// Make sure a legit storemanGroup provided
         require(dst._active, "Dst PK doesn't exist");
-        require(!activeSrc, "Source storeman group should be deactive.");
 
         /// Credit receivable, double-check receivable is no less than value to be unlocked
         dst._receivable = dst._receivable.sub(value);
@@ -278,16 +265,14 @@ contract QuotaDelegate is QuotaStorage, Halt {
     /// @notice                                 get mint quota of storeman, tokenId
     /// @param tokenId                          tokenPairId of crosschain
     /// @param storemanGroupPK                  PK of source storeman group
-    function getMintQuota(uint256 tokenId, bytes storemanGroupPk)
+    function getMintQuota(uint256 tokenId, bytes storemanGroupPK)
         public
         view
         returns (uint256 mintQuota)
     {
         uint256 deposit;
-        bool active;
-        (deposit, active) = getDepositInfo(storemanGroupPk);
-        // require(active, "Storeman group not active");
-        if (!active) {
+        deposit = getDepositAmount(storemanGroupPK);
+        if (deposit == 0) {
             mintQuota = 0;
             return;
         }
@@ -295,10 +280,10 @@ contract QuotaDelegate is QuotaStorage, Halt {
         uint256 depositPrice = getPrice(depositTokenSymbol);
         uint256 depositValue = deposit.mul(depositPrice).div(depositRate);
         uint256 totalTokenUsedValue = 0;
-        uint256 tokenCount = storemanTokenCount[storemanGroupPk];
+        uint256 tokenCount = storemanTokenCountMap[storemanGroupPK];
         for (uint256 i = 0; i < tokenCount; i++) {
-            uint256 id = storemanTokensMap[storemanGroupPk][i];
-            Quota q = quotaMap[id][storemanGroupPk];
+            uint256 id = storemanTokensMap[storemanGroupPK][i];
+            Quota storage q = quotaMap[id][storemanGroupPK];
             uint256 _price = getPrice(getTokenAncestorSymbol(id));
             uint256 tokenValue = q._receivable.add(q._debt).mul(_price);
             totalTokenUsedValue = totalTokenUsedValue.add(tokenValue);
@@ -321,7 +306,7 @@ contract QuotaDelegate is QuotaStorage, Halt {
     /// @notice                                 get burn quota of storeman, tokenId
     /// @param tokenId                          tokenPairId of crosschain
     /// @param storemanGroupPK                  PK of source storeman group
-    function getBurnQuota(uint256 tokenId, bytes storemanGroupPk)
+    function getBurnQuota(uint256 tokenId, bytes storemanGroupPK)
         public
         view
         returns (uint256 burnQuota)
@@ -332,13 +317,13 @@ contract QuotaDelegate is QuotaStorage, Halt {
 
     // ----------- Private Functions ---------------
 
-    function getDepositInfo(bytes storemanGroupPk)
+    function getDepositAmount(bytes storemanGroupPK)
         private
         view
-        returns (uint256 deposit, bool active)
+        returns (uint256 deposit)
     {
-        IDepositOracle oracle = IDepositOracle(depositOracelAddress);
-        (deposit, active) = oracle.getDepositInfo(storemanGroupPk);
+        IDepositOracle oracle = IDepositOracle(depositOracleAddress);
+        deposit = oracle.getDepositAmount(storemanGroupPK);
     }
 
     function getTokenAncestorSymbol(uint256 tokenId)
@@ -346,12 +331,12 @@ contract QuotaDelegate is QuotaStorage, Halt {
         view
         returns (bytes ancestorSymbol)
     {
-        ITokenManager tokenManager = ITokenManger(tokenManagerAddress)
+        ITokenManager tokenManager = ITokenManager(tokenManagerAddress);
         ancestorSymbol = tokenManager.getTokenPairInfo(tokenId);
     }
 
     function getPrice(bytes symbol) private view returns (uint256 price) {
         IPriceOracle oracle = IPriceOracle(priceOracleAddress);
-        price = oracle.getValue(symbol)
+        price = oracle.getValue(symbol);
     }
 }

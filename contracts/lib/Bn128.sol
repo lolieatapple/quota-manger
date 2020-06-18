@@ -17,7 +17,7 @@ library Bn128 {
         uint256 y1,
         uint256 x2,
         uint256 y2
-    ) external pure returns (uint256 x3, uint256 y3) {
+    ) external view returns (uint256 x3, uint256 y3) {
         uint256[2] memory outValue;
         uint256[4] memory input;
         input[0] = x1;
@@ -39,7 +39,7 @@ library Bn128 {
         uint256 x1,
         uint256 y1,
         uint256 scalar
-    ) public pure returns (uint256 x2, uint256 y2) {
+    ) public view returns (uint256 x2, uint256 y2) {
         uint256[2] memory outValue;
         uint256[3] memory input;
         input[0] = x1;

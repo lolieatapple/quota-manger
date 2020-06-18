@@ -26,7 +26,7 @@
 
 pragma solidity 0.4.26;
 
-import "../lib/SafeMath.sol"
+import "../lib/SafeMath.sol";
 import "../components/BasicStorage.sol";
 
 contract QuotaStorage is BasicStorage {
@@ -46,13 +46,13 @@ contract QuotaStorage is BasicStorage {
     }
 
     /// @dev mapping: tokenId => storemanPk => Quota
-    mapping(bytes => mapping(bytes => Quota)) public quotaMap;
+    mapping(uint => mapping(bytes => Quota)) quotaMap;
 
     /// @dev mapping: storemanPk => tokenIndex => tokenId, tokenIndex:0,1,2,3...
-    mapping(bytes => mapping(uint => bytes) public storemanTokensMap;
+    mapping(bytes => mapping(uint => uint)) storemanTokensMap;
 
     /// @dev mapping: storemanPk => token count
-    mapping(bytes => uint) public storemanTokenCountMap;
+    mapping(bytes => uint) storemanTokenCountMap;
 
     /// @dev save htlc address
     address public htlcAddress;
