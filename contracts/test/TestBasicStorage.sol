@@ -1,6 +1,6 @@
-pragma solidity 0.4.26;
+pragma solidity ^0.4.24;
 
-import "../lib/BasicStorage.sol";
+import "../components/BasicStorage.sol";
 
 contract TestBasicStorage is BasicStorage {
     /* uintData */
