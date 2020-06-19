@@ -45,6 +45,39 @@ contract QuotaStorage is BasicStorage {
         bool _active;
     }
 
+    event MintLock(address indexed sender, uint indexed tokenId, bytes indexed storemanGroupPK, uint value, uint _receivable, uint _payable);
+
+    event MintRedeem(address indexed sender, uint indexed tokenId, bytes indexed storemanGroupPK, uint value, uint _receivable, uint _payable);
+
+    event MintRevoke(address indexed sender, uint indexed tokenId, bytes indexed storemanGroupPK, uint value, uint _receivable, uint _payable);
+
+    event BurnLock(address indexed sender, uint indexed tokenId, bytes indexed storemanGroupPK, uint value, uint _receivable, uint _payable);
+
+    event BurnRedeem(address indexed sender, uint indexed tokenId, bytes indexed storemanGroupPK, uint value, uint _receivable, uint _payable);
+
+    event BurnRevoke(address indexed sender, uint indexed tokenId, bytes indexed storemanGroupPK, uint value, uint _receivable, uint _payable);
+
+    event DebtLock(
+        address indexed sender,
+        uint256 indexed tokenId,
+        bytes indexed srcStoremanGroupPK,
+        bytes dstStoremanGroupPK,
+        uint256 value);
+
+    event DebtRedeem(
+        address indexed sender,
+        uint256 indexed tokenId,
+        bytes indexed srcStoremanGroupPK,
+        bytes dstStoremanGroupPK,
+        uint256 value);
+
+    event DebtRevoke(
+        address indexed sender,
+        uint256 indexed tokenId,
+        bytes indexed srcStoremanGroupPK,
+        bytes dstStoremanGroupPK,
+        uint256 value);
+
     /// @dev mapping: tokenId => storemanPk => Quota
     mapping(uint => mapping(bytes => Quota)) quotaMap;
 

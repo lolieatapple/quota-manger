@@ -42,7 +42,7 @@ interface IDepositOracle {
 }
 
 interface ITokenManager {
-    function getTokenPairInfo(uint id) public view returns(bytes ancestorSymbol);
+    function getTokenPairInfo(uint id) public view returns(bytes ancestorSymbol, uint decimals);
 }
 
 
@@ -80,8 +80,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
         bytes storemanGroupPK,
         uint256 value
     ) external onlyHtlc {
-        uint256 deposit;
-        deposit = getDepositAmount(storemanGroupPK);
+        uint256 deposit = getDepositAmount(storemanGroupPK);
+        uint256 mintQuota = getMintQuota(tokenId, storemanGroupPK);
 
         /// Make sure enough inbound quota available
         Quota storage quota = quotaMap[tokenId][storemanGroupPK];
@@ -92,8 +92,6 @@ contract QuotaDelegate is QuotaStorage, Halt {
                 .add(1);
         }
 
-        uint256 mintQuota = getMintQuota(tokenId, storemanGroupPK);
-
         require(
             mintQuota.sub(quota._receivable.add(quota._debt)) >= value,
             "Quota is not enough"
@@ -101,6 +99,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
 
         /// Increase receivable
         quota._receivable = quota._receivable.add(value);
+
+        emit MintLock(msg.sender, tokenId, storemanGroupPK, value, quota._receivable, quota._payable);
     }
 
     /// @notice                                 revoke quota in mint direction
@@ -116,6 +116,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
         require(quota._active, "Quota is not active");
         /// Credit receivable, double-check receivable is no less than value to be unlocked
         quota._receivable = quota._receivable.sub(value);
+
+        emit MintRevoke(msg.sender, tokenId, storemanGroupPK, value, quota._receivable, quota._payable);
     }
 
     /// @notice                                 redeem quota in mint direction
@@ -132,6 +134,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
         /// Adjust quota record
         quota._receivable = quota._receivable.sub(value);
         quota._debt = quota._debt.add(value);
+
+        emit MintRedeem(msg.sender, tokenId, storemanGroupPK, value, quota._receivable, quota._payable);
     }
 
     /// @notice                                 lock quota in burn direction
@@ -149,6 +153,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
         require(quota._debt.sub(quota._payable) >= value, "Value is invalid");
         /// Adjust quota record
         quota._payable = quota._payable.add(value);
+
+        emit BurnLock(msg.sender, tokenId, storemanGroupPK, value, quota._receivable, quota._payable);
     }
 
     /// @notice                                 revoke quota in burn direction
@@ -164,6 +170,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
         require(quota._active, "Quota is not active");
         /// Adjust quota record
         quota._payable = quota._payable.sub(value);
+
+        emit BurnRevoke(msg.sender, tokenId, storemanGroupPK, value, quota._receivable, quota._payable);
     }
 
     /// @notice                                 redeem quota in burn direction
@@ -180,6 +188,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
         /// Adjust quota record
         quota._debt = quota._debt.sub(value);
         quota._payable = quota._payable.sub(value);
+
+        emit BurnRedeem(msg.sender, tokenId, storemanGroupPK, value, quota._receivable, quota._payable);
     }
 
     /// @notice                                 source storeman group lock the debt transaction,update the detailed quota info. of the storeman group
@@ -193,8 +203,6 @@ contract QuotaDelegate is QuotaStorage, Halt {
         bytes srcStoremanGroupPK,
         bytes dstStoremanGroupPK
     ) external onlyHtlc {
-        /// Make sure an active storemanGroup is provided to handle transactions
-
         /// src: there's no processing tx, and have enough debt!
         Quota storage src = quotaMap[tokenId][srcStoremanGroupPK];
         require(
@@ -214,6 +222,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
 
         dst._receivable = dst._receivable.add(value);
         src._payable = src._payable.add(value);
+
+        emit DebtLock(msg.sender, tokenId, srcStoremanGroupPK, dstStoremanGroupPK, value);
     }
 
     /// @notice                                 destination storeman group redeem the debt transaction,update the detailed quota info. of the storeman group
@@ -231,7 +241,7 @@ contract QuotaDelegate is QuotaStorage, Halt {
         Quota storage src = quotaMap[tokenId][srcStoremanGroupPK];
 
         /// Make sure a legit storemanGroup provided
-        require(dst._active, "Dst PK doesn't exist");
+        require(dst._active, "Dst PK token doesn't exist");
 
         /// Adjust quota record
         dst._receivable = dst._receivable.sub(value);
@@ -239,6 +249,8 @@ contract QuotaDelegate is QuotaStorage, Halt {
 
         src._payable = src._payable.sub(value);
         src._debt = src._debt.sub(value);
+
+        emit DebtRedeem(msg.sender, tokenId, srcStoremanGroupPK, dstStoremanGroupPK, value);
     }
 
     /// @notice                                 source storeman group revoke the debt transaction,update the detailed quota info. of the storeman group
@@ -255,11 +267,13 @@ contract QuotaDelegate is QuotaStorage, Halt {
         Quota storage dst = quotaMap[tokenId][dstStoremanGroupPK];
         Quota storage src = quotaMap[tokenId][srcStoremanGroupPK];
         /// Make sure a legit storemanGroup provided
-        require(dst._active, "Dst PK doesn't exist");
+        require(dst._active, "Dst PK token doesn't exist");
 
         /// Credit receivable, double-check receivable is no less than value to be unlocked
         dst._receivable = dst._receivable.sub(value);
         src._payable = src._payable.sub(value);
+
+        emit DebtRevoke(msg.sender, tokenId, srcStoremanGroupPK, dstStoremanGroupPK, value);
     }
 
     /// @notice                                 get mint quota of storeman, tokenId
@@ -270,22 +284,25 @@ contract QuotaDelegate is QuotaStorage, Halt {
         view
         returns (uint256 mintQuota)
     {
-        uint256 deposit;
-        deposit = getDepositAmount(storemanGroupPK);
+        bytes memory symbol;
+        uint decimals;
+        uint256 tokenPrice;
+
+        uint256 deposit = getDepositAmount(storemanGroupPK);
         if (deposit == 0) {
             mintQuota = 0;
             return;
         }
 
-        uint256 depositPrice = getPrice(depositTokenSymbol);
-        uint256 depositValue = deposit.mul(depositPrice).div(depositRate);
+        uint256 depositValue = deposit.mul(getPrice(depositTokenSymbol)).mul(1000).div(depositRate); // 1500 = 150%
         uint256 totalTokenUsedValue = 0;
         uint256 tokenCount = storemanTokenCountMap[storemanGroupPK];
         for (uint256 i = 0; i < tokenCount; i++) {
             uint256 id = storemanTokensMap[storemanGroupPK][i];
+            (symbol, decimals) = getTokenAncestorInfo(id);
+            tokenPrice = getPrice(symbol);
             Quota storage q = quotaMap[id][storemanGroupPK];
-            uint256 _price = getPrice(getTokenAncestorSymbol(id));
-            uint256 tokenValue = q._receivable.add(q._debt).mul(_price);
+            uint256 tokenValue = q._receivable.add(q._debt).mul(tokenPrice).mul(1 ether).div(10**decimals); /// change Decimals to 18 digits
             totalTokenUsedValue = totalTokenUsedValue.add(tokenValue);
         }
 
@@ -294,13 +311,14 @@ contract QuotaDelegate is QuotaStorage, Halt {
             return;
         }
 
-        uint256 tokenPrice = getPrice(getTokenAncestorSymbol(tokenId));
+        (symbol, decimals) = getTokenAncestorInfo(tokenId);
+        tokenPrice = getPrice(symbol);
         if (tokenPrice == 0) {
             mintQuota = 0;
             return;
         }
 
-        mintQuota = depositValue.sub(totalTokenUsedValue).div(tokenPrice);
+        mintQuota = depositValue.sub(totalTokenUsedValue).div(tokenPrice).mul(10**decimals).div(1 ether);
     }
 
     /// @notice                                 get burn quota of storeman, tokenId
@@ -326,13 +344,13 @@ contract QuotaDelegate is QuotaStorage, Halt {
         deposit = oracle.getDepositAmount(storemanGroupPK);
     }
 
-    function getTokenAncestorSymbol(uint256 tokenId)
+    function getTokenAncestorInfo(uint256 tokenId)
         private
         view
-        returns (bytes ancestorSymbol)
+        returns (bytes ancestorSymbol, uint decimals)
     {
         ITokenManager tokenManager = ITokenManager(tokenManagerAddress);
-        ancestorSymbol = tokenManager.getTokenPairInfo(tokenId);
+        (ancestorSymbol, decimals) = tokenManager.getTokenPairInfo(tokenId);
     }
 
     function getPrice(bytes symbol) private view returns (uint256 price) {
