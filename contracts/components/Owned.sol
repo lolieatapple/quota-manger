@@ -58,4 +58,8 @@ contract Owned {
             owner = newOwner;
         }
     }
+
+    function renounceOwnership() public onlyOwner {
+        owner = address(0);
+    }
 }
